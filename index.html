@@ -186,14 +186,30 @@
   }
 
   function handleSend(){
-    const text = inputEl.value.trim();
-    if(!text) return;
-    addMessage(text, 'user');
-    inputEl.value = '';
-    setTimeout(() => {
-      addMessage(getBotReply(text), 'bot');
-    }, 400);
-  }
+  const text = inputEl.value.trim();
+  if(!text) return;
+  addMessage(text, 'user');
+  inputEl.value = '';
+
+  // Save user message to database
+  fetch('http://localhost:5000/api/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender: 'user', text })
+  });
+
+  setTimeout(() => {
+    const botReply = getBotReply(text);
+    addMessage(botReply, 'bot');
+
+    // Save bot message too
+    fetch('http://localhost:5000/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender: 'bot', text: botReply })
+    });
+  }, 400);
+}
 
   sendBtn.addEventListener('click', handleSend);
   inputEl.addEventListener('keydown', e => {
