@@ -18,13 +18,13 @@ const messageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model('Message', messageSchema);
 
-app.post('/api/messages', async (req, res) => {
+app.post('https://chatbot-backend-ym7r.onrender.com/api/messages', async (req, res) => {
   const msg = new Message(req.body);
   await msg.save();
   res.json(msg);
 });
 
-app.get('/api/messages', async (req, res) => {
+app.get('https://chatbot-backend-ym7r.onrender.com/api/messages', async (req, res) => {
   const msgs = await Message.find().sort({ createdAt: 1 });
   res.json(msgs);
 });
