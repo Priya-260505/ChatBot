@@ -192,7 +192,7 @@
   inputEl.value = '';
 
   // Save user message to database
-  fetch('http://localhost:5000/api/messages', {
+  fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sender: 'user', text })
@@ -203,7 +203,7 @@
     addMessage(botReply, 'bot');
 
     // Save bot message too
-    fetch('http://localhost:5000/api/messages', {
+    fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sender: 'bot', text: botReply })
