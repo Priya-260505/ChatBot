@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chatbot</title>
+<style>
+  :root{
+    --bg: #F2EFE9;
+    --header: #2F4858;
+    --header-text: #F2EFE9;
+    --bot-bubble: #E4EEEC;
+    --bot-text: #1F3A3D;
+    --user-bubble: #33776E;
+    --user-text: #FFFFFF;
+    --accent: #E07A5F;
+    --border: #D8D3C8;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding: 20px;
+  }
+  .chat-app{
+    width:100%;
+    max-width: 420px;
+    background:#fff;
+    border-radius: 16px;
+    overflow:hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    display:flex;
+    flex-direction:column;
+    height: 620px;
+  }
+  .chat-header{
+    background: var(--header);
+    color: var(--header-text);
+    padding: 16px 20px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .chat-header .dot{
+    width:10px;height:10px;border-radius:50%;
+    background: #6FCF97;
+  }
+  .chat-header h1{
+    font-size:16px;
+    margin:0;
+    font-weight:600;
+  }
+  .chat-header p{
+    margin:0;
+    font-size:12px;
+    opacity:0.75;
+  }
+  .messages{
+    flex:1;
+    padding: 18px;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    background: var(--bg);
+  }
+  .msg{
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    font-size: 14px;
+    line-height:1.4;
+    animation: pop 0.15s ease-out;
+  }
+  @keyframes pop{
+    from{ transform: scale(0.95); opacity:0; }
+    to{ transform: scale(1); opacity:1; }
+  }
+  .bot{
+    align-self:flex-start;
+    background: var(--bot-bubble);
+    color: var(--bot-text);
+    border-bottom-left-radius: 4px;
+  }
+  .user{
+    align-self:flex-end;
+    background: var(--user-bubble);
+    color: var(--user-text);
+    border-bottom-right-radius: 4px;
+  }
+  .input-row{
+    display:flex;
+    padding: 14px;
+    gap:10px;
+    border-top: 1px solid var(--border);
+    background:#fff;
+  }
+  .input-row input{
+    flex:1;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 10px 16px;
+    font-size:14px;
+    outline:none;
+  }
+  .input-row input:focus{
+    border-color: var(--user-bubble);
+  }
+  .input-row button{
+    background: var(--accent);
+    color:#fff;
+    border:none;
+    border-radius: 20px;
+    padding: 0 20px;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    transition: opacity 0.15s;
+  }
+  .input-row button:hover{
+    opacity:0.9;
+  }
+  .messages::-webkit-scrollbar{ width:6px; }
+  .messages::-webkit-scrollbar-thumb{ background: var(--border); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div class="chat-app">
+  <div class="chat-header">
+    <div class="dot"></div>
+    <div>
+      <h1>Buddy</h1>
+      <p>Always online</p>
+    </div>
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="msg bot">Hi! I'm Buddy 👋 Ask me something — try "hello", "joke", or "help".</div>
+  </div>
+
+  <div class="input-row">
+    <input type="text" id="userInput" placeholder="Type a message..." autocomplete="off">
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('userInput');
+  const sendBtn = document.getElementById('sendBtn');
+
+  const rules = [
+    { keys: ['hello', 'hi', 'hey'], reply: "Hey there! How's it going?" },
+    { keys: ['how are you'], reply: "I'm doing great, thanks for asking! How about you?" },
+    { keys: ['name'], reply: "I'm Buddy, your simple chat companion." },
+    { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything!" },
+    { keys: ['help'], reply: "You can say hi, ask for a joke, ask my name, or just say bye." },
+    { keys: ['thank'], reply: "You're welcome! 😊" },
+    { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day!" },
+    { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are!" },
+    { keys: ['love'], reply: "Aww, that's sweet! I appreciate you too." },
+  ];
+
+  function getBotReply(text){
+    const lower = text.toLowerCase();
+    for(const rule of rules){
+      if(rule.keys.some(k => lower.includes(k))){
+        return rule.reply;
+      }
+    }
+    return "Hmm, I'm not sure about that one. Try asking for 'help'!";
+  }
+
+  function addMessage(text, sender){
+    const div = document.createElement('div');
+    div.className = 'msg ' + sender;
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function handleSend(){
+    const text = inputEl.value.trim();
+    if(!text) return;
+    addMessage(text, 'user');
+    inputEl.value = '';
+    setTimeout(() => {
+      addMessage(getBotReply(text), 'bot');
+    }, 400);
+  }
+
+  sendBtn.addEventListener('click', handleSend);
+  inputEl.addEventListener('keydown', e => {
+    if(e.key === 'Enter') handleSend();
+  });
+</script>
+
+</body>
+</html>
