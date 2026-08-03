@@ -40,6 +40,9 @@ async function getEmbedding(text) {
     body: JSON.stringify({ input: text, model: 'voyage-2' })
   });
   const data = await res.json();
+  if (!data.data || !data.data[0]) {
+    throw new Error('Voyage API failed: ' + JSON.stringify(data));
+  }
   return data.data[0].embedding;
 }
 
@@ -48,7 +51,7 @@ app.get('/', (req, res) => {
   res.send('Chatbot backend is running');
 });
 
-// ---------- Old simple message routes (kept for chat history) ----------
+// ---------- Message history routes ----------
 app.post('/api/messages', async (req, res) => {
   const msg = new Message(req.body);
   await msg.save();
@@ -60,7 +63,7 @@ app.get('/api/messages', async (req, res) => {
   res.json(msgs);
 });
 
-// ---------- STEP A: Ingest documents (run once to build knowledge base) ----------
+// ---------- Ingest documents ----------
 app.post('/api/ingest', async (req, res) => {
   try {
     const { text } = req.body;
@@ -69,20 +72,30 @@ app.post('/api/ingest', async (req, res) => {
     await doc.save();
     res.json({ success: true, id: doc._id });
   } catch (err) {
-    console.error(err);
+    console.error('INGEST ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ---------- STEP B: RAG chat endpoint ----------
+// ---------- RAG chat endpoint (with conversation memory) ----------
 app.post('/api/chat', async (req, res) => {
   try {
     const { question } = req.body;
 
-    // 1. Embed the question
+    if (!question) {
+      return res.status(400).json({ error: 'Question is required' });
+    }
+
+    // 1. Get recent conversation history
+    const recentMessages = await Message.find().sort({ createdAt: -1 }).limit(6);
+    const history = recentMessages.reverse()
+      .map(m => `${m.sender}: ${m.text}`)
+      .join('\n');
+
+    // 2. Embed the question
     const qVector = await getEmbedding(question);
 
-    // 2. Vector search in MongoDB Atlas
+    // 3. Vector search in MongoDB Atlas
     const results = await Document.aggregate([
       {
         $vectorSearch: {
@@ -100,20 +113,31 @@ app.post('/api/chat', async (req, res) => {
 
     const context = results.map(r => r.text).join('\n\n');
 
-    // 3. Ask Claude with retrieved context
+    // 4. Ask Claude with retrieved context + conversation history
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 500,
       messages: [{
         role: 'user',
-        content: `Use the following context to answer the question. If the context doesn't contain the answer, say you don't know.\n\nContext:\n${context}\n\nQuestion: ${question}`
+        content: `You are Buddy, a friendly chatbot. Use the conversation history and known facts below to answer naturally.
+
+Conversation history:
+${history}
+
+Known facts:
+${context || 'No specific facts found for this question.'}
+
+Current question: ${question}
+
+Answer conversationally and in a friendly way. If the known facts don't contain the answer, just chat normally without saying "I don't know" abruptly.`
       }]
     });
 
     const answer = response.content[0].text;
     res.json({ answer, sourcesUsed: results.length });
+
   } catch (err) {
-    console.error(err);
+    console.error('CHAT ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
