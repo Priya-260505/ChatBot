@@ -1,7 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const Anthropic = require('@anthropic-ai/sdk');
 require('dotenv').config();
 
 const app = express();
@@ -11,8 +10,6 @@ app.use(express.json());
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.log(err));
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ---------- Schemas ----------
 const messageSchema = new mongoose.Schema({
@@ -44,6 +41,25 @@ async function getEmbedding(text) {
     throw new Error('Voyage API failed: ' + JSON.stringify(data));
   }
   return data.data[0].embedding;
+}
+
+// ---------- Helper: get answer from Gemini ----------
+async function getGeminiAnswer(prompt) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    }
+  );
+  const data = await res.json();
+  if (!data.candidates || !data.candidates[0]) {
+    throw new Error('Gemini API failed: ' + JSON.stringify(data));
+  }
+  return data.candidates[0].content.parts[0].text;
 }
 
 // ---------- Root ----------
@@ -113,13 +129,8 @@ app.post('/api/chat', async (req, res) => {
 
     const context = results.map(r => r.text).join('\n\n');
 
-    // 4. Ask Claude with retrieved context + conversation history
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 500,
-      messages: [{
-        role: 'user',
-        content: `You are Buddy, a friendly chatbot. Use the conversation history and known facts below to answer naturally.
+    // 4. Ask Gemini with retrieved context + conversation history
+    const prompt = `You are Buddy, a friendly chatbot. Use the conversation history and known facts below to answer naturally.
 
 Conversation history:
 ${history}
@@ -129,11 +140,10 @@ ${context || 'No specific facts found for this question.'}
 
 Current question: ${question}
 
-Answer conversationally and in a friendly way. If the known facts don't contain the answer, just chat normally without saying "I don't know" abruptly.`
-      }]
-    });
+Answer conversationally and in a friendly way. If the known facts don't contain the answer, just chat normally without saying "I don't know" abruptly.`;
 
-    const answer = response.content[0].text;
+    const answer = await getGeminiAnswer(prompt);
+
     res.json({ answer, sourcesUsed: results.length });
 
   } catch (err) {
