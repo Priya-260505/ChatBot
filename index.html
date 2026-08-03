@@ -189,30 +189,26 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  function handleSend(){
+  async function handleSend(){
   const text = inputEl.value.trim();
   if(!text) return;
   addMessage(text, 'user');
   inputEl.value = '';
 
-  // Save user message to database
   fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sender: 'user', text })
   });
 
-  setTimeout(() => {
-    const botReply = getBotReply(text);
-    addMessage(botReply, 'bot');
+  const botReply = await getBotReply(text);
+  addMessage(botReply, 'bot');
 
-    // Save bot message too
-    fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender: 'bot', text: botReply })
-    });
-  }, 400);
+  fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender: 'bot', text: botReply })
+  });
 }
 
   sendBtn.addEventListener('click', handleSend);
