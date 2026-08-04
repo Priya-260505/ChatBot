@@ -158,6 +158,7 @@
   const rules = [
     { keys: ['hello', 'hi', 'hey'], reply: "Hey there! How's it going?" },
     { keys: ['how are you'], reply: "I'm doing great, thanks for asking! How about you?" },
+    { keys: ['what are you doing'], reply: "Just here, chatting with you! What's up?" },
     { keys: ['name'], reply: "I'm Buddy, your simple chat companion." },
     { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything!" },
     { keys: ['help'], reply: "You can say hi, ask for a joke, ask my name, or just say bye." },
@@ -165,9 +166,22 @@
     { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day!" },
     { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are!" },
     { keys: ['love'], reply: "Aww, that's sweet! I appreciate you too." },
+    { keys: ['good morning'], reply: "Good morning! Hope you have an amazing day ahead!" },
+    { keys: ['good night'], reply: "Good night! Sleep well and take care!" },
+    { keys: ['who are you'], reply: "I'm Buddy — a friendly chatbot here to chat and help out!" },
   ];
 
   async function getBotReply(text){
+  const lower = text.toLowerCase();
+
+  // First check simple greeting rules (fast, no database needed)
+  for(const rule of rules){
+    if(rule.keys.some(k => lower.includes(k))){
+      return rule.reply;
+    }
+  }
+
+  // If no simple rule matched, ask the RAG backend
   try {
     const res = await fetch('https://chatbot-backend-ym7r.onrender.com/api/chat', {
       method: 'POST',
