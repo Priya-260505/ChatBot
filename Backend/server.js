@@ -94,7 +94,7 @@ app.post('/api/chat', async (req, res) => {
           path: 'embedding',
           queryVector: qVector,
           numCandidates: 100,
-          limit: 3
+          limit: 1
         }
       },
       {
@@ -104,7 +104,7 @@ app.post('/api/chat', async (req, res) => {
 
     let answer;
     if (results.length > 0) {
-      answer = results.map(r => r.text).join(' ');
+      answer = results[0].text;
     } else {
       answer = "Hmm, I don't have information about that yet. Try telling me something first!";
     }
