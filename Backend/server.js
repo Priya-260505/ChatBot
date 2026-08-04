@@ -43,25 +43,6 @@ async function getEmbedding(text) {
   return data.data[0].embedding;
 }
 
-// ---------- Helper: get answer from Gemini ----------
-async function getGeminiAnswer(prompt) {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
-      })
-    }
-  );
-  const data = await res.json();
-  if (!data.candidates || !data.candidates[0]) {
-    throw new Error('Gemini API failed: ' + JSON.stringify(data));
-  }
-  return data.candidates[0].content.parts[0].text;
-}
-
 // ---------- Root ----------
 app.get('/', (req, res) => {
   res.send('Chatbot backend is running');
@@ -93,7 +74,7 @@ app.post('/api/ingest', async (req, res) => {
   }
 });
 
-// ---------- RAG chat endpoint (with conversation memory) ----------
+// ---------- RAG chat endpoint (no external LLM — direct retrieval) ----------
 app.post('/api/chat', async (req, res) => {
   try {
     const { question } = req.body;
@@ -102,16 +83,10 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Question is required' });
     }
 
-    // 1. Get recent conversation history
-    const recentMessages = await Message.find().sort({ createdAt: -1 }).limit(6);
-    const history = recentMessages.reverse()
-      .map(m => `${m.sender}: ${m.text}`)
-      .join('\n');
-
-    // 2. Embed the question
+    // 1. Embed the question
     const qVector = await getEmbedding(question);
 
-    // 3. Vector search in MongoDB Atlas
+    // 2. Vector search in MongoDB Atlas
     const results = await Document.aggregate([
       {
         $vectorSearch: {
@@ -127,22 +102,12 @@ app.post('/api/chat', async (req, res) => {
       }
     ]);
 
-    const context = results.map(r => r.text).join('\n\n');
-
-    // 4. Ask Gemini with retrieved context + conversation history
-    const prompt = `You are Buddy, a friendly chatbot. Use the conversation history and known facts below to answer naturally.
-
-Conversation history:
-${history}
-
-Known facts:
-${context || 'No specific facts found for this question.'}
-
-Current question: ${question}
-
-Answer conversationally and in a friendly way. If the known facts don't contain the answer, just chat normally without saying "I don't know" abruptly.`;
-
-    const answer = await getGeminiAnswer(prompt);
+    let answer;
+    if (results.length > 0) {
+      answer = results.map(r => r.text).join(' ');
+    } else {
+      answer = "Hmm, I don't have information about that yet. Try telling me something first!";
+    }
 
     res.json({ answer, sourcesUsed: results.length });
 
