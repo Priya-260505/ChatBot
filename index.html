@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chatbot</title>
+<title>Nova</title>
 <style>
   :root{
     --bg: #F2EFE9;
@@ -136,13 +136,13 @@
   <div class="chat-header">
     <div class="dot"></div>
     <div>
-      <h1>Buddy</h1>
+      <h1>Nova</h1>
       <p>Always online</p>
     </div>
   </div>
 
   <div class="messages" id="messages">
-    <div class="msg bot">Hi! I'm Buddy 👋 What's your name?</div>
+    <div class="msg bot">Hi👋! I'm Nova🪐 What's your name?</div>
   </div>
 
   <div class="input-row">
@@ -158,10 +158,10 @@
 
   // ---------- Name memory (saved in this browser) ----------
   function getUserName(){
-    return localStorage.getItem('buddy_user_name');
+    return localStorage.getItem('nova_user_name');
   }
   function setUserName(name){
-    localStorage.setItem('buddy_user_name', name);
+    localStorage.setItem('nova_user_name', name);
   }
 
   // ---------- Conversation state (tracks movie flow steps) ----------
