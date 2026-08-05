@@ -156,7 +156,7 @@
   const inputEl = document.getElementById('userInput');
   const sendBtn = document.getElementById('sendBtn');
 
-  // ---------- Name memory (saved in this browser) ----------
+  // ---------- Name memory ----------
   function getUserName(){
     return localStorage.getItem('buddy_user_name');
   }
@@ -164,13 +164,19 @@
     localStorage.setItem('buddy_user_name', name);
   }
 
+  // ---------- Conversation state (tracks movie flow steps) ----------
+  let conversationState = null; // null, 'awaiting_language', 'awaiting_movie'
+
+  const tamilMovies = ["Vikram", "Master", "Soorarai Pottru", "96", "Jailer"];
+  const englishMovies = ["Inception", "The Shawshank Redemption", "Interstellar", "The Dark Knight", "Forrest Gump"];
+
   // ---------- Simple friendly rules ----------
   const rules = [
     { keys: ['how are you'], reply: "I'm doing great, thanks for asking! 😊 How about you?" },
     { keys: ['what are you doing'], reply: "Just here, chatting with you! 💬 What's up?" },
     { keys: ['who are you'], reply: "I'm Buddy 🤖 — a friendly chatbot here to chat and help out!" },
     { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything! 😄" },
-    { keys: ['help'], reply: "You can ask me about myself, or things I've learned. Just type your question! 🙂" },
+    { keys: ['help'], reply: "You can ask me about myself, technology, colors, or even ask for a movie suggestion! 🙂" },
     { keys: ['thank'], reply: "You're very welcome! 😊" },
     { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day ahead! 👋" },
     { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are! ☀️" },
@@ -179,7 +185,6 @@
     { keys: ['good night'], reply: "Good night! 🌙 Sleep well and take care!" },
   ];
 
-  // ---------- Detect "my name is X" pattern ----------
   function detectName(text){
     const match = text.match(/my name is ([a-zA-Z]+)/i) || text.match(/i am ([a-zA-Z]+)/i) || text.match(/i'm ([a-zA-Z]+)/i);
     return match ? match[1] : null;
@@ -189,26 +194,67 @@
     const lower = text.toLowerCase();
     const name = getUserName();
 
-    // Step 1: check if user is introducing their name
+    // ----- STEP A: If we are waiting for language choice -----
+    if(conversationState === 'awaiting_language'){
+      if(lower.includes('tamil')){
+        conversationState = 'awaiting_movie';
+        return `Great choice! 🎬 Here are 5 Tamil movies:\n\n${tamilMovies.map((m,i)=>`${i+1}. ${m}`).join('\n')}\n\nWhich one would you like to know the story of?`;
+      }
+      if(lower.includes('english')){
+        conversationState = 'awaiting_movie';
+        return `Great choice! 🎬 Here are 5 English movies:\n\n${englishMovies.map((m,i)=>`${i+1}. ${m}`).join('\n')}\n\nWhich one would you like to know the story of?`;
+      }
+      return "Please choose either 'Tamil' or 'English' 😊";
+    }
+
+    // ----- STEP B: If we are waiting for movie name -----
+    if(conversationState === 'awaiting_movie'){
+      const allMovies = [...tamilMovies, ...englishMovies];
+      const matchedMovie = allMovies.find(m => lower.includes(m.toLowerCase()));
+
+      if(matchedMovie){
+        conversationState = null; // reset conversation
+        try {
+          const res = await fetch('https://chatbot-backend-ym7r.onrender.com/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: `Tell me the story of ${matchedMovie}` })
+          });
+          const data = await res.json();
+          return `${data.answer || "I couldn't find the story right now."}\n\nWant to know about another movie? 🎬`;
+        } catch (err) {
+          return "Something went wrong fetching the story, please try again. 😕";
+        }
+      }
+      return "I couldn't recognize that movie name, please pick one from the list above 🎬";
+    }
+
+    // ----- STEP C: Detect "suggest me a movie" type requests -----
+    if(lower.includes('movie')){
+      conversationState = 'awaiting_language';
+      return "Sure! 🎬 Would you like Tamil or English movie suggestions?";
+    }
+
+    // ----- STEP D: Name detection -----
     const detectedName = detectName(text);
     if(detectedName){
       setUserName(detectedName);
-      return `Nice to meet you, ${detectedName}! Do you need any other help? 😊`;
+      return `Nice to meet you, ${detectedName}! 😊 I'll remember your name from now on.`;
     }
 
-    // Step 2: greetings — use name if we know it
+    // ----- STEP E: Greetings -----
     if(['hi', 'hello', 'hey'].some(k => lower.includes(k))){
       return name ? `Hey ${name}! 👋 How's it going?` : "Hey there! 👋 How's it going? (By the way, what's your name?)";
     }
 
-    // Step 3: check simple rules
+    // ----- STEP F: Simple rules -----
     for(const rule of rules){
       if(rule.keys.some(k => lower.includes(k))){
         return rule.reply;
       }
     }
 
-    // Step 4: fall back to RAG backend
+    // ----- STEP G: Fall back to RAG backend -----
     try {
       const res = await fetch('https://chatbot-backend-ym7r.onrender.com/api/chat', {
         method: 'POST',
@@ -217,12 +263,8 @@
       });
       const data = await res.json();
       let answer = data.answer || "Hmm, I couldn't find anything about that. 🤔";
-
       if(name) answer = `${name}, ${answer.charAt(0).toLowerCase() + answer.slice(1)}`;
-
-      // Add a friendly follow-up
       answer += "\n\nWant to know anything else? 😊";
-
       return answer;
     } catch (err) {
       return "Something went wrong, please try again. 😕";
