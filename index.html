@@ -156,7 +156,7 @@
   const inputEl = document.getElementById('userInput');
   const sendBtn = document.getElementById('sendBtn');
 
-  // ---------- Name memory ----------
+  // ---------- Name memory (saved in this browser) ----------
   function getUserName(){
     return localStorage.getItem('buddy_user_name');
   }
@@ -176,7 +176,7 @@
     { keys: ['what are you doing'], reply: "Just here, chatting with you! 💬 What's up?" },
     { keys: ['who are you'], reply: "I'm Buddy 🤖 — a friendly chatbot here to chat and help out!" },
     { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything! 😄" },
-    { keys: ['help'], reply: "You can ask me about myself, technology, colors, or even ask for a movie suggestion! 🙂" },
+    { keys: ['help'], reply: "You can ask me about myself, technology, colors, movies, or even give me a math question! 🙂" },
     { keys: ['thank'], reply: "You're very welcome! 😊" },
     { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day ahead! 👋" },
     { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are! ☀️" },
@@ -185,9 +185,32 @@
     { keys: ['good night'], reply: "Good night! 🌙 Sleep well and take care!" },
   ];
 
+  // ---------- Detect "my name is X" pattern ----------
   function detectName(text){
     const match = text.match(/my name is ([a-zA-Z]+)/i) || text.match(/i am ([a-zA-Z]+)/i) || text.match(/i'm ([a-zA-Z]+)/i);
     return match ? match[1] : null;
+  }
+
+  // ---------- Simple calculator detection ----------
+  function tryCalculate(text){
+    const cleaned = text.toLowerCase()
+      .replace(/what is|calculate|whats|solve|=|\?/g, '')
+      .trim();
+
+    const isSafeMath = /^[0-9+\-*/().\s]+$/.test(cleaned);
+
+    if(!isSafeMath || cleaned.length === 0) return null;
+    if(!/[+\-*/]/.test(cleaned)) return null;
+
+    try {
+      const result = Function('"use strict"; return (' + cleaned + ')')();
+      if(typeof result === 'number' && !isNaN(result) && isFinite(result)){
+        return result;
+      }
+    } catch (err) {
+      return null;
+    }
+    return null;
   }
 
   async function getBotReply(text){
@@ -213,7 +236,7 @@
       const matchedMovie = allMovies.find(m => lower.includes(m.toLowerCase()));
 
       if(matchedMovie){
-        conversationState = null; // reset conversation
+        conversationState = null;
         try {
           const res = await fetch('https://chatbot-backend-ym7r.onrender.com/api/chat', {
             method: 'POST',
@@ -227,6 +250,12 @@
         }
       }
       return "I couldn't recognize that movie name, please pick one from the list above 🎬";
+    }
+
+    // ----- STEP B.5: Check if it's a math question -----
+    const calcResult = tryCalculate(text);
+    if(calcResult !== null){
+      return `The answer is **${calcResult}** 🧮`;
     }
 
     // ----- STEP C: Detect "suggest me a movie" type requests -----
