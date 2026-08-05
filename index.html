@@ -76,6 +76,7 @@
     font-size: 14px;
     line-height:1.4;
     animation: pop 0.15s ease-out;
+    white-space: pre-line;
   }
   @keyframes pop{
     from{ transform: scale(0.95); opacity:0; }
@@ -141,7 +142,7 @@
   </div>
 
   <div class="messages" id="messages">
-    <div class="msg bot">Hi! I'm Buddy 👋 Ask me something — try "hello", "joke", or "help".</div>
+    <div class="msg bot">Hi! I'm Buddy 👋 What's your name?</div>
   </div>
 
   <div class="input-row">
@@ -155,45 +156,78 @@
   const inputEl = document.getElementById('userInput');
   const sendBtn = document.getElementById('sendBtn');
 
+  // ---------- Name memory (saved in this browser) ----------
+  function getUserName(){
+    return localStorage.getItem('buddy_user_name');
+  }
+  function setUserName(name){
+    localStorage.setItem('buddy_user_name', name);
+  }
+
+  // ---------- Simple friendly rules ----------
   const rules = [
-    { keys: ['hello', 'hi', 'hey'], reply: "Hey there! How's it going?" },
-    { keys: ['how are you'], reply: "I'm doing great, thanks for asking! How about you?" },
-    { keys: ['what are you doing'], reply: "Just here, chatting with you! What's up?" },
-    { keys: ['name'], reply: "I'm Buddy, your simple chat companion." },
-    { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything!" },
-    { keys: ['help'], reply: "You can say hi, ask for a joke, ask my name, or just say bye." },
-    { keys: ['thank'], reply: "You're welcome! 😊" },
-    { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day!" },
-    { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are!" },
-    { keys: ['love'], reply: "Aww, that's sweet! I appreciate you too." },
-    { keys: ['good morning'], reply: "Good morning! Hope you have an amazing day ahead!" },
-    { keys: ['good night'], reply: "Good night! Sleep well and take care!" },
-    { keys: ['who are you'], reply: "I'm Buddy — a friendly chatbot here to chat and help out!" },
+    { keys: ['how are you'], reply: "I'm doing great, thanks for asking! 😊 How about you?" },
+    { keys: ['what are you doing'], reply: "Just here, chatting with you! 💬 What's up?" },
+    { keys: ['who are you'], reply: "I'm Buddy 🤖 — a friendly chatbot here to chat and help out!" },
+    { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything! 😄" },
+    { keys: ['help'], reply: "You can ask me about myself, or things I've learned. Just type your question! 🙂" },
+    { keys: ['thank'], reply: "You're very welcome! 😊" },
+    { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day ahead! 👋" },
+    { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are! ☀️" },
+    { keys: ['love'], reply: "Aww, that's sweet! I appreciate you too. 💛" },
+    { keys: ['good morning'], reply: "Good morning! ☀️ Hope you have an amazing day ahead!" },
+    { keys: ['good night'], reply: "Good night! 🌙 Sleep well and take care!" },
   ];
 
-  async function getBotReply(text){
-  const lower = text.toLowerCase();
+  // ---------- Detect "my name is X" pattern ----------
+  function detectName(text){
+    const match = text.match(/my name is ([a-zA-Z]+)/i) || text.match(/i am ([a-zA-Z]+)/i) || text.match(/i'm ([a-zA-Z]+)/i);
+    return match ? match[1] : null;
+  }
 
-  // First check simple greeting rules (fast, no database needed)
-  for(const rule of rules){
-    if(rule.keys.some(k => lower.includes(k))){
-      return rule.reply;
+  async function getBotReply(text){
+    const lower = text.toLowerCase();
+    const name = getUserName();
+
+    // Step 1: check if user is introducing their name
+    const detectedName = detectName(text);
+    if(detectedName){
+      setUserName(detectedName);
+      return `Nice to meet you, ${detectedName}! 😊 I'll remember your name from now on.`;
+    }
+
+    // Step 2: greetings — use name if we know it
+    if(['hi', 'hello', 'hey'].some(k => lower.includes(k))){
+      return name ? `Hey ${name}! 👋 How's it going?` : "Hey there! 👋 How's it going? (By the way, what's your name?)";
+    }
+
+    // Step 3: check simple rules
+    for(const rule of rules){
+      if(rule.keys.some(k => lower.includes(k))){
+        return rule.reply;
+      }
+    }
+
+    // Step 4: fall back to RAG backend
+    try {
+      const res = await fetch('https://chatbot-backend-ym7r.onrender.com/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: text })
+      });
+      const data = await res.json();
+      let answer = data.answer || "Hmm, I couldn't find anything about that. 🤔";
+
+      if(name) answer = `${name}, ${answer.charAt(0).toLowerCase() + answer.slice(1)}`;
+
+      // Add a friendly follow-up
+      answer += "\n\nWant to know anything else? 😊";
+
+      return answer;
+    } catch (err) {
+      return "Something went wrong, please try again. 😕";
     }
   }
-
-  // If no simple rule matched, ask the RAG backend
-  try {
-    const res = await fetch('https://chatbot-backend-ym7r.onrender.com/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: text })
-    });
-    const data = await res.json();
-    return data.answer || "Sorry, I couldn't find an answer.";
-  } catch (err) {
-    return "Something went wrong, please try again.";
-  }
-}
 
   function addMessage(text, sender){
     const div = document.createElement('div');
@@ -204,26 +238,26 @@
   }
 
   async function handleSend(){
-  const text = inputEl.value.trim();
-  if(!text) return;
-  addMessage(text, 'user');
-  inputEl.value = '';
+    const text = inputEl.value.trim();
+    if(!text) return;
+    addMessage(text, 'user');
+    inputEl.value = '';
 
-  fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sender: 'user', text })
-  });
+    fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender: 'user', text })
+    });
 
-  const botReply = await getBotReply(text);
-  addMessage(botReply, 'bot');
+    const botReply = await getBotReply(text);
+    addMessage(botReply, 'bot');
 
-  fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sender: 'bot', text: botReply })
-  });
-}
+    fetch('https://chatbot-backend-ym7r.onrender.com/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender: 'bot', text: botReply })
+    });
+  }
 
   sendBtn.addEventListener('click', handleSend);
   inputEl.addEventListener('keydown', e => {
