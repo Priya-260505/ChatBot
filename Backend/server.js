@@ -83,10 +83,8 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Question is required' });
     }
 
-    // 1. Embed the question
     const qVector = await getEmbedding(question);
 
-    // 2. Vector search in MongoDB Atlas
     const results = await Document.aggregate([
       {
         $vectorSearch: {
@@ -98,18 +96,24 @@ app.post('/api/chat', async (req, res) => {
         }
       },
       {
-        $project: { text: 1, _id: 0 }
+        $project: {
+          text: 1,
+          _id: 0,
+          score: { $meta: 'vectorSearchScore' }
+        }
       }
     ]);
 
     let answer;
-    if (results.length > 0) {
+    const SCORE_THRESHOLD = 0.75; // only trust matches above this confidence
+
+    if (results.length > 0 && results[0].score >= SCORE_THRESHOLD) {
       answer = results[0].text;
     } else {
-      answer = "Hmm, I don't have information about that yet. Try telling me something first!";
+      answer = "I don't know about that yet. You can teach me by saying 'learn this: ...' 🧠";
     }
 
-    res.json({ answer, sourcesUsed: results.length });
+    res.json({ answer, score: results[0]?.score || 0 });
 
   } catch (err) {
     console.error('CHAT ERROR:', err);
