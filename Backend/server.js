@@ -5,7 +5,7 @@ require('dotenv').config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' })); // increased limit for images
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
@@ -43,6 +43,49 @@ async function getEmbedding(text) {
   return data.data[0].embedding;
 }
 
+// ---------- Helper: get text answer from Gemini ----------
+async function getGeminiAnswer(prompt) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    }
+  );
+  const data = await res.json();
+  if (!data.candidates || !data.candidates[0]) {
+    throw new Error('Gemini API failed: ' + JSON.stringify(data));
+  }
+  return data.candidates[0].content.parts[0].text;
+}
+
+// ---------- Helper: analyze an image using Gemini Vision ----------
+async function analyzeImage(base64Image, mimeType, question) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: question || "Describe what you see in this image in simple, friendly words." },
+            { inline_data: { mime_type: mimeType, data: base64Image } }
+          ]
+        }]
+      })
+    }
+  );
+  const data = await res.json();
+  if (!data.candidates || !data.candidates[0]) {
+    throw new Error('Gemini Vision API failed: ' + JSON.stringify(data));
+  }
+  return data.candidates[0].content.parts[0].text;
+}
+
 // ---------- Root ----------
 app.get('/', (req, res) => {
   res.send('Chatbot backend is running');
@@ -60,7 +103,7 @@ app.get('/api/messages', async (req, res) => {
   res.json(msgs);
 });
 
-// ---------- Ingest documents ----------
+// ---------- Ingest documents (text facts) ----------
 app.post('/api/ingest', async (req, res) => {
   try {
     const { text } = req.body;
@@ -74,14 +117,14 @@ app.post('/api/ingest', async (req, res) => {
   }
 });
 
-// ---------- RAG chat endpoint (no external LLM — direct retrieval) ----------
+// ---------- RAG + Gemini chat endpoint ----------
 app.post('/api/chat', async (req, res) => {
   try {
     const { question } = req.body;
+    if (!question) return res.status(400).json({ error: 'Question is required' });
 
-    if (!question) {
-      return res.status(400).json({ error: 'Question is required' });
-    }
+    const recentMessages = await Message.find().sort({ createdAt: -1 }).limit(6);
+    const history = recentMessages.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
 
     const qVector = await getEmbedding(question);
 
@@ -92,31 +135,45 @@ app.post('/api/chat', async (req, res) => {
           path: 'embedding',
           queryVector: qVector,
           numCandidates: 100,
-          limit: 1
+          limit: 3
         }
       },
-      {
-        $project: {
-          text: 1,
-          _id: 0,
-          score: { $meta: 'vectorSearchScore' }
-        }
-      }
+      { $project: { text: 1, _id: 0, score: { $meta: 'vectorSearchScore' } } }
     ]);
 
-    let answer;
-    const SCORE_THRESHOLD = 0.75; // only trust matches above this confidence
+    const relevantFacts = results.filter(r => r.score >= 0.7).map(r => r.text).join('\n\n');
 
-    if (results.length > 0 && results[0].score >= SCORE_THRESHOLD) {
-      answer = results[0].text;
-    } else {
-      answer = "I don't know about that yet. You can teach me by saying 'learn this: ...' 🧠";
-    }
+    const prompt = `You are Nova, a friendly chatbot. Use the conversation history and known facts below to answer naturally and simply.
 
-    res.json({ answer, score: results[0]?.score || 0 });
+Conversation history:
+${history}
+
+Known facts:
+${relevantFacts || 'No specific facts found for this question.'}
+
+Current question: ${question}
+
+Answer conversationally and briefly. If the facts don't help, just answer normally using your own knowledge.`;
+
+    const answer = await getGeminiAnswer(prompt);
+    res.json({ answer });
 
   } catch (err) {
     console.error('CHAT ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Image analysis endpoint ----------
+app.post('/api/analyze-image', async (req, res) => {
+  try {
+    const { base64Image, mimeType, question } = req.body;
+    if (!base64Image) return res.status(400).json({ error: 'Image is required' });
+
+    const answer = await analyzeImage(base64Image, mimeType, question);
+    res.json({ answer });
+  } catch (err) {
+    console.error('IMAGE ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
