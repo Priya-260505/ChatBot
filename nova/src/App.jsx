@@ -28,12 +28,22 @@ async function fetchWithRetry(url, options, retries = 2) {
 }
 
 function App() {
-  const [userName, setUserNameState] = useState(() => localStorage.getItem('nova_user_name') || '');
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem('nova_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
   const [nameInput, setNameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState('');
+
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [uploading, setUploading] = useState(false);
   const [attachedFile, setAttachedFile] = useState(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -41,32 +51,85 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // ---------- Load chat history when user logs in / page refreshes ----------
   useEffect(() => {
-    if (userName) {
-      setMessages([{ sender: 'bot', text: `Hey ${userName}! 👋 How can I help you today?` }]);
+    if (user) {
+      loadChatHistory();
     }
-  }, [userName]);
+  }, [user]);
 
-  function handleLogin() {
-    const trimmed = nameInput.trim();
-    if (!trimmed) return;
-    localStorage.setItem('nova_user_name', trimmed);
-    setUserNameState(trimmed);
+  async function loadChatHistory() {
+    setLoadingHistory(true);
+    try {
+      const res = await fetchWithRetry(`${BACKEND_URL}/api/messages/${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setMessages(data.map(m => ({ sender: m.sender, text: m.text })));
+      } else {
+        setMessages([{ sender: 'bot', text: `Hey ${user.name}! 👋 How can I help you today?` }]);
+      }
+    } catch (err) {
+      console.error('Failed to load history:', err);
+      setMessages([{ sender: 'bot', text: `Hey ${user.name}! 👋 How can I help you today?` }]);
+    }
+    setLoadingHistory(false);
+  }
+
+  // ---------- Auth handlers ----------
+    async function handleAuth() {
+    setAuthError('');
+    const email = emailInput.trim();
+    const password = passwordInput.trim();
+
+    if (!email || !password || (authMode === 'signup' && !nameInput.trim())) {
+      setAuthError('Please fill in all fields');
+      return;
+    }
+
+    const endpoint = authMode === 'login' ? '/api/login' : '/api/signup';
+    const body = authMode === 'login'
+      ? { email, password }
+      : { name: nameInput.trim(), email, password };
+
+    try {
+      const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+      console.log('Auth response:', data); // temporary debug log
+
+      if (!res.ok || data.error) {
+        setAuthError(data.error || `Request failed with status ${res.status}`);
+        return;
+      }
+
+      const userData = { name: data.name, email: data.email };
+      localStorage.setItem('nova_user', JSON.stringify(userData));
+      setUser(userData);
+    } catch (err) {
+      console.error('Auth request failed:', err);
+      setAuthError('Could not connect to server. Please try again.');
+    }
   }
 
   function handleLogout() {
-    localStorage.removeItem('nova_user_name');
-    setUserNameState('');
-    setNameInput('');
+    localStorage.removeItem('nova_user');
+    setUser(null);
     setMessages([]);
     setAttachedFile(null);
+    setEmailInput('');
+    setPasswordInput('');
+    setNameInput('');
   }
 
   async function saveMessage(sender, text) {
     fetch(`${BACKEND_URL}/api/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender, text })
+      body: JSON.stringify({ sender, text, userEmail: user.email })
     });
   }
 
@@ -104,9 +167,9 @@ function App() {
     }
   }
 
-    async function handleSend() {
+  async function handleSend() {
     const text = input.trim();
-    setInput(''); // clear input FIRST, before any async work
+    setInput('');
 
     if (attachedFile) {
       await processAttachedFile(attachedFile, text);
@@ -130,41 +193,28 @@ function App() {
     }
   }
 
-  function handleKeyDown(e) {
-    if (e.key === 'Enter') handleSend();
-  }
-
   function compressImage(file, maxWidth = 800, quality = 0.7) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       const reader = new FileReader();
-
-      reader.onload = (e) => {
-        img.src = e.target.result;
-      };
+      reader.onload = (e) => { img.src = e.target.result; };
       reader.onerror = reject;
-
       img.onload = () => {
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-
         if (width > maxWidth) {
           height = (maxWidth / width) * height;
           width = maxWidth;
         }
-
         canvas.width = width;
         canvas.height = height;
-
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-
         const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
         resolve(base64);
       };
       img.onerror = reject;
-
       reader.readAsDataURL(file);
     });
   }
@@ -210,7 +260,6 @@ function App() {
         });
         const data = await res.json();
         if (data.error) {
-          console.error('Image analysis error:', data.error);
           setMessages(prev => [...prev, { sender: 'bot', text: "Sorry, I had trouble analyzing that image. 😕" }]);
         } else {
           setMessages(prev => [...prev, { sender: 'bot', text: data.answer }]);
@@ -230,7 +279,6 @@ function App() {
           if (data.success) count++;
         }
         let replyText = `Done! I read your PDF and learned ${count} new things 📄🧠`;
-
         if (questionText) {
           const res = await fetchWithRetry(`${BACKEND_URL}/api/chat`, {
             method: 'POST',
@@ -256,7 +304,6 @@ function App() {
           if (data.success) count++;
         }
         let replyText = `Done! I learned ${count} new things from "${file.name}" 📄🧠`;
-
         if (questionText) {
           const res = await fetchWithRetry(`${BACKEND_URL}/api/chat`, {
             method: 'POST',
@@ -279,25 +326,61 @@ function App() {
     setUploading(false);
   }
 
-  if (!userName) {
+  // ---------- LOGIN / SIGNUP SCREEN ----------
+  if (!user) {
     return (
       <div className="chat-app-wrapper">
         <div className="login-card">
           <h1>Welcome to Nova 🤖</h1>
-          <p>What's your name?</p>
+
+          <div className="auth-toggle">
+            <button
+              className={authMode === 'login' ? 'active' : ''}
+              onClick={() => { setAuthMode('login'); setAuthError(''); }}
+            >
+              Login
+            </button>
+            <button
+              className={authMode === 'signup' ? 'active' : ''}
+              onClick={() => { setAuthMode('signup'); setAuthError(''); }}
+            >
+              Sign Up
+            </button>
+          </div>
+
+          {authMode === 'signup' && (
+            <input
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Your name"
+            />
+          )}
           <input
-            type="text"
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-            placeholder="Enter your name..."
+            type="email"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            placeholder="Email"
           />
-          <button onClick={handleLogin}>Start Chatting</button>
+          <input
+            type="password"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+            placeholder="Password"
+          />
+
+          {authError && <p className="auth-error">{authError}</p>}
+
+          <button className="auth-submit" onClick={handleAuth}>
+            {authMode === 'login' ? 'Log In' : 'Create Account'}
+          </button>
         </div>
       </div>
     );
   }
 
+  // ---------- MAIN CHAT SCREEN ----------
   return (
     <div className="chat-app-wrapper">
       <div className="chat-app">
@@ -307,12 +390,13 @@ function App() {
             <h1>Nova</h1>
             <p>Always online</p>
           </div>
-          <button className="logout-btn" onClick={handleLogout} title="Switch user">
+          <button className="logout-btn" onClick={handleLogout} title="Log out">
             🔄
           </button>
         </div>
 
         <div className="messages">
+          {loadingHistory && <div className="msg bot">Loading your chat history... 📜</div>}
           {messages.map((msg, i) => (
             <div key={i} className={`msg ${msg.sender}`}>{msg.text}</div>
           ))}
