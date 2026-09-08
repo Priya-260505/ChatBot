@@ -65,12 +65,22 @@
 
 .logout-btn {
   margin-left: auto;
-  background: none;
+  background: var(--accent);
+  color: var(--header);
   border: none;
-  color: var(--accent);
-  font-size: 16px;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 15px;
   cursor: pointer;
-  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s;
+}
+
+.logout-btn:hover {
+  opacity: 0.85;
 }
 
 .logout-btn:hover {
@@ -148,16 +158,24 @@
 }
 
 .upload-btn {
-  background: none;
-  border: 1px solid var(--border);
+  background: var(--bg);
+  border: 1.5px solid var(--accent);
   border-radius: 50%;
-  width: 36px;
-  height: 36px;
-  font-size: 16px;
+  width: 38px;
+  height: 38px;
+  font-size: 18px;
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--header);
 }
 
+.upload-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
 .upload-btn:hover {
   background: var(--bg);
 }
