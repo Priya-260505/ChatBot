@@ -5,13 +5,12 @@ require('dotenv').config();
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '25mb' })); // increased limit for images
+app.use(express.json({ limit: '25mb' }));
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.log(err));
 
-// ---------- Schemas ----------
 const messageSchema = new mongoose.Schema({
   sender: String,
   text: String,
@@ -26,7 +25,6 @@ const documentSchema = new mongoose.Schema({
 });
 const Document = mongoose.model('Document', documentSchema);
 
-// ---------- Helper: get embedding from Voyage AI ----------
 async function getEmbedding(text) {
   const res = await fetch('https://api.voyageai.com/v1/embeddings', {
     method: 'POST',
@@ -43,10 +41,9 @@ async function getEmbedding(text) {
   return data.data[0].embedding;
 }
 
-// ---------- Helper: get text answer from Gemini ----------
 async function getGeminiAnswer(prompt) {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -62,10 +59,9 @@ async function getGeminiAnswer(prompt) {
   return data.candidates[0].content.parts[0].text;
 }
 
-// ---------- Helper: analyze an image using Gemini Vision ----------
 async function analyzeImage(base64Image, mimeType, question) {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -86,12 +82,10 @@ async function analyzeImage(base64Image, mimeType, question) {
   return data.candidates[0].content.parts[0].text;
 }
 
-// ---------- Root ----------
 app.get('/', (req, res) => {
   res.send('Chatbot backend is running');
 });
 
-// ---------- Message history routes ----------
 app.post('/api/messages', async (req, res) => {
   const msg = new Message(req.body);
   await msg.save();
@@ -103,7 +97,6 @@ app.get('/api/messages', async (req, res) => {
   res.json(msgs);
 });
 
-// ---------- Ingest documents (text facts) ----------
 app.post('/api/ingest', async (req, res) => {
   try {
     const { text } = req.body;
@@ -117,7 +110,6 @@ app.post('/api/ingest', async (req, res) => {
   }
 });
 
-// ---------- RAG + Gemini chat endpoint ----------
 app.post('/api/chat', async (req, res) => {
   try {
     const { question } = req.body;
@@ -141,19 +133,11 @@ app.post('/api/chat', async (req, res) => {
       { $project: { text: 1, _id: 0, score: { $meta: 'vectorSearchScore' } } }
     ]);
 
-    const relevantFacts = results.filter(r => r.score >= 0.7).map(r => r.text).join('\n\n');
+    const relevantFacts = results.filter(r => r.score >= 0.8).map(r => r.text);
 
-    const prompt = `You are Nova, a friendly chatbot. Use the conversation history and known facts below to answer naturally and simply.
-
-Conversation history:
-${history}
-
-Known facts:
-${relevantFacts || 'No specific facts found for this question.'}
-
-Current question: ${question}
-
-Answer conversationally and briefly. If the facts don't help, just answer normally using your own knowledge.`;
+    const prompt = relevantFacts.length > 0
+      ? `You are Nova, a friendly and knowledgeable chatbot. Here are some facts that might help:\n\n${relevantFacts.join('\n\n')}\n\nUse these facts if relevant. If the question is about something else entirely, just answer normally using your own general knowledge.\n\nQuestion: ${question}\n\nGive a clear, direct, and friendly answer.`
+      : `You are Nova, a friendly and knowledgeable chatbot. Answer this question using your own general knowledge, like ChatGPT or Claude would:\n\n${question}\n\nGive a clear, direct, and friendly answer.`;
 
     const answer = await getGeminiAnswer(prompt);
     res.json({ answer });
@@ -164,7 +148,6 @@ Answer conversationally and briefly. If the facts don't help, just answer normal
   }
 });
 
-// ---------- Image analysis endpoint ----------
 app.post('/api/analyze-image', async (req, res) => {
   try {
     const { base64Image, mimeType, question } = req.body;
@@ -179,4 +162,4 @@ app.post('/api/analyze-image', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));git add .

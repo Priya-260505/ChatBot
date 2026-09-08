@@ -14,7 +14,7 @@ const rules = [
   { keys: ['what are you doing'], reply: "Just here, chatting with you! 💬 What's up?" },
   { keys: ['who are you'], reply: "I'm Nova 🤖 — a friendly chatbot here to chat and help out!" },
   { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything! 😄" },
-  { keys: ['help'], reply: "You can ask me questions, give me a math problem, ask for movie suggestions, teach me by saying 'learn this: ...', or attach a file/image! 🙂" },
+  { keys: ['help'], reply: "You can ask me anything, give me a math problem, ask for movie suggestions, teach me by saying 'learn this: ...', or attach a file/image! 🙂" },
   { keys: ['thank'], reply: "You're very welcome! 😊" },
   { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day ahead! 👋" },
   { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are! ☀️" },
@@ -49,7 +49,7 @@ function App() {
   const [input, setInput] = useState('');
   const [conversationState, setConversationState] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [attachedFile, setAttachedFile] = useState(null); // holds file waiting to be sent
+  const [attachedFile, setAttachedFile] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -63,7 +63,6 @@ function App() {
     }
   }, [userName]);
 
-  // ---------- LOGIN ----------
   function handleLogin() {
     const trimmed = nameInput.trim();
     if (!trimmed) return;
@@ -71,7 +70,6 @@ function App() {
     setUserNameState(trimmed);
   }
 
-  // ---------- LOGOUT / SWITCH USER ----------
   function handleLogout() {
     localStorage.removeItem('nova_user_name');
     setUserNameState('');
@@ -120,7 +118,8 @@ function App() {
           return "Something went wrong fetching the story, please try again. 😕";
         }
       }
-      return "I couldn't recognize that movie name, please pick one from the list above 🎬";
+      // If not a movie name, treat as normal question (don't block conversation)
+      setConversationState(null);
     }
 
     const newFact = detectNewFact(text);
@@ -143,12 +142,12 @@ function App() {
       return `The answer is **${calcResult}** 🧮`;
     }
 
-    if (lower.includes('movie')) {
+    if (lower.includes('suggest') && lower.includes('movie')) {
       setConversationState('awaiting_language');
       return "Sure! 🎬 Would you like Tamil or English movie suggestions?";
     }
 
-    if (['hi', 'hello', 'hey'].some(k => lower.includes(k))) {
+    if (['hi', 'hello', 'hey'].some(k => lower.includes(k)) && lower.length < 10) {
       return `Hey ${userName}! 👋 How's it going?`;
     }
 
@@ -165,15 +164,13 @@ function App() {
         body: JSON.stringify({ question: text })
       });
       const data = await res.json();
-      return data.answer || "Hmm, I couldn't find anything about that. 🤔";
+      return data.answer || "Hmm, something went wrong. 🤔";
     } catch (err) {
       return "Something went wrong, please try again. 😕";
     }
   }
 
-  // ---------- SEND TEXT MESSAGE ----------
   async function handleSend() {
-    // If a file is attached, process that instead
     if (attachedFile) {
       await processAttachedFile();
       return;
@@ -195,12 +192,37 @@ function App() {
     if (e.key === 'Enter') handleSend();
   }
 
-  // ---------- FILE HELPERS ----------
-  function fileToBase64(file) {
+  function compressImage(file, maxWidth = 800, quality = 0.7) {
     return new Promise((resolve, reject) => {
+      const img = new Image();
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
+
+      reader.onload = (e) => {
+        img.src = e.target.result;
+      };
       reader.onerror = reject;
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = (maxWidth / width) * height;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+        resolve(base64);
+      };
+      img.onerror = reject;
+
       reader.readAsDataURL(file);
     });
   }
@@ -217,7 +239,6 @@ function App() {
     return fullText;
   }
 
-  // ---------- STEP 1: User picks a file — just show preview, don't process yet ----------
   function handleFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -229,23 +250,27 @@ function App() {
     setAttachedFile(null);
   }
 
-  // ---------- STEP 2: User clicks Send — NOW we actually process the file ----------
   async function processAttachedFile() {
     const file = attachedFile;
-    setAttachedFile(null);
+    setAttachedFile(null); // clear immediately so input re-enables
     setMessages(prev => [...prev, { sender: 'user', text: `📎 ${file.name}` }]);
     setUploading(true);
 
     try {
       if (file.type.startsWith('image/')) {
-        const base64 = await fileToBase64(file);
+        const base64 = await compressImage(file);
         const res = await fetch(`${BACKEND_URL}/api/analyze-image`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Image: base64, mimeType: file.type })
+          body: JSON.stringify({ base64Image: base64, mimeType: 'image/jpeg' })
         });
         const data = await res.json();
-        setMessages(prev => [...prev, { sender: 'bot', text: data.answer || "I couldn't understand that image. 😕" }]);
+        if (data.error) {
+          console.error('Image analysis error:', data.error);
+          setMessages(prev => [...prev, { sender: 'bot', text: "Sorry, I had trouble analyzing that image. 😕" }]);
+        } else {
+          setMessages(prev => [...prev, { sender: 'bot', text: data.answer }]);
+        }
       }
       else if (file.type === 'application/pdf') {
         const text = await extractPdfText(file);
@@ -281,14 +306,13 @@ function App() {
         setMessages(prev => [...prev, { sender: 'bot', text: "I can only read .txt, .pdf files, or images right now 📎" }]);
       }
     } catch (err) {
-      console.error(err);
+      console.error('File processing error:', err);
       setMessages(prev => [...prev, { sender: 'bot', text: "Something went wrong processing that file. 😕" }]);
     }
 
     setUploading(false);
   }
 
-  // ---------- LOGIN SCREEN ----------
   if (!userName) {
     return (
       <div className="chat-app-wrapper">
@@ -308,7 +332,6 @@ function App() {
     );
   }
 
-  // ---------- MAIN CHAT SCREEN ----------
   return (
     <div className="chat-app-wrapper">
       <div className="chat-app">
@@ -360,7 +383,6 @@ function App() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={attachedFile ? "Click Send to process file..." : "Type a message..."}
-            disabled={!!attachedFile}
           />
           <button onClick={handleSend}>Send</button>
         </div>
