@@ -104,24 +104,30 @@ function App() {
     }
   }
 
-  async function handleSend() {
+    async function handleSend() {
     const text = input.trim();
+    setInput(''); // clear input FIRST, before any async work
 
     if (attachedFile) {
       await processAttachedFile(attachedFile, text);
-      setInput('');
       return;
     }
 
     if (!text) return;
 
     setMessages(prev => [...prev, { sender: 'user', text }]);
-    setInput('');
     saveMessage('user', text);
 
     const botReply = await getBotReply(text);
     setMessages(prev => [...prev, { sender: 'bot', text: botReply }]);
     saveMessage('bot', botReply);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSend();
+    }
   }
 
   function handleKeyDown(e) {
