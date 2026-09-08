@@ -6,40 +6,25 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 
 const BACKEND_URL = 'https://chatbot-backend-ym7r.onrender.com';
 
-const tamilMovies = ["Vikram", "Master", "Soorarai Pottru", "96", "Jailer"];
-const englishMovies = ["Inception", "The Shawshank Redemption", "Interstellar", "The Dark Knight", "Forrest Gump"];
-
-const rules = [
-  { keys: ['how are you'], reply: "I'm doing great, thanks for asking! 😊 How about you?" },
-  { keys: ['what are you doing'], reply: "Just here, chatting with you! 💬 What's up?" },
-  { keys: ['who are you'], reply: "I'm Nova 🤖 — a friendly chatbot here to chat and help out!" },
-  { keys: ['joke'], reply: "Why don't scientists trust atoms? Because they make up everything! 😄" },
-  { keys: ['help'], reply: "You can ask me anything, give me a math problem, ask for movie suggestions, teach me by saying 'learn this: ...', or attach a file/image! 🙂" },
-  { keys: ['thank'], reply: "You're very welcome! 😊" },
-  { keys: ['bye', 'goodbye'], reply: "Goodbye! Have a wonderful day ahead! 👋" },
-  { keys: ['weather'], reply: "I can't check live weather, but I hope it's sunny where you are! ☀️" },
-  { keys: ['love'], reply: "Aww, that's sweet! I appreciate you too. 💛" },
-  { keys: ['good morning'], reply: "Good morning! ☀️ Hope you have an amazing day ahead!" },
-  { keys: ['good night'], reply: "Good night! 🌙 Sleep well and take care!" },
-];
-
-function tryCalculate(text) {
-  const cleaned = text.toLowerCase().replace(/what is|calculate|whats|solve|=|\?/g, '').trim();
-  const isSafeMath = /^[0-9+\-*/().\s]+$/.test(cleaned);
-  if (!isSafeMath || cleaned.length === 0) return null;
-  if (!/[+\-*/]/.test(cleaned)) return null;
-  try {
-    const result = Function('"use strict"; return (' + cleaned + ')')();
-    if (typeof result === 'number' && !isNaN(result) && isFinite(result)) return result;
-  } catch (err) {
-    return null;
-  }
-  return null;
-}
-
 function detectNewFact(text) {
   const match = text.match(/^(learn this|remember that|teach you|add fact)[:\-]?\s*(.+)/i);
   return match ? match[2].trim() : null;
+}
+
+async function fetchWithRetry(url, options, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok && i < retries) {
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
 }
 
 function App() {
@@ -47,7 +32,6 @@ function App() {
   const [nameInput, setNameInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [conversationState, setConversationState] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [attachedFile, setAttachedFile] = useState(null);
   const messagesEndRef = useRef(null);
@@ -87,45 +71,10 @@ function App() {
   }
 
   async function getBotReply(text) {
-    const lower = text.toLowerCase();
-
-    if (conversationState === 'awaiting_language') {
-      if (lower.includes('tamil')) {
-        setConversationState('awaiting_movie');
-        return `Great choice! 🎬 Here are 5 Tamil movies:\n\n${tamilMovies.map((m, i) => `${i + 1}. ${m}`).join('\n')}\n\nWhich one would you like to know the story of?`;
-      }
-      if (lower.includes('english')) {
-        setConversationState('awaiting_movie');
-        return `Great choice! 🎬 Here are 5 English movies:\n\n${englishMovies.map((m, i) => `${i + 1}. ${m}`).join('\n')}\n\nWhich one would you like to know the story of?`;
-      }
-      return "Please choose either 'Tamil' or 'English' 😊";
-    }
-
-    if (conversationState === 'awaiting_movie') {
-      const allMovies = [...tamilMovies, ...englishMovies];
-      const matchedMovie = allMovies.find(m => lower.includes(m.toLowerCase()));
-      if (matchedMovie) {
-        setConversationState(null);
-        try {
-          const res = await fetch(`${BACKEND_URL}/api/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question: `Tell me the story of ${matchedMovie}` })
-          });
-          const data = await res.json();
-          return `${data.answer || "I couldn't find the story right now."}\n\nWant to know about another movie? 🎬`;
-        } catch (err) {
-          return "Something went wrong fetching the story, please try again. 😕";
-        }
-      }
-      // If not a movie name, treat as normal question (don't block conversation)
-      setConversationState(null);
-    }
-
     const newFact = detectNewFact(text);
     if (newFact) {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/ingest`, {
+        const res = await fetchWithRetry(`${BACKEND_URL}/api/ingest`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: newFact })
@@ -137,46 +86,33 @@ function App() {
       }
     }
 
-    const calcResult = tryCalculate(text);
-    if (calcResult !== null) {
-      return `The answer is **${calcResult}** 🧮`;
-    }
-
-    if (lower.includes('suggest') && lower.includes('movie')) {
-      setConversationState('awaiting_language');
-      return "Sure! 🎬 Would you like Tamil or English movie suggestions?";
-    }
-
-    if (['hi', 'hello', 'hey'].some(k => lower.includes(k)) && lower.length < 10) {
-      return `Hey ${userName}! 👋 How's it going?`;
-    }
-
-    for (const rule of rules) {
-      if (rule.keys.some(k => lower.includes(k))) {
-        return rule.reply;
-      }
-    }
-
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chat`, {
+      const res = await fetchWithRetry(`${BACKEND_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: text })
       });
       const data = await res.json();
-      return data.answer || "Hmm, something went wrong. 🤔";
+      if (data.error) {
+        console.error('Chat API error:', data.error);
+        return "Hmm, something went wrong on my end. Please try asking again. 😕";
+      }
+      return data.answer || "Hmm, I couldn't find anything about that. 🤔";
     } catch (err) {
-      return "Something went wrong, please try again. 😕";
+      console.error('Chat request failed:', err);
+      return "Something went wrong, please try again in a moment. 😕";
     }
   }
 
   async function handleSend() {
+    const text = input.trim();
+
     if (attachedFile) {
-      await processAttachedFile();
+      await processAttachedFile(attachedFile, text);
+      setInput('');
       return;
     }
 
-    const text = input.trim();
     if (!text) return;
 
     setMessages(prev => [...prev, { sender: 'user', text }]);
@@ -250,19 +186,21 @@ function App() {
     setAttachedFile(null);
   }
 
-  async function processAttachedFile() {
-    const file = attachedFile;
-    setAttachedFile(null); // clear immediately so input re-enables
-    setMessages(prev => [...prev, { sender: 'user', text: `📎 ${file.name}` }]);
+  async function processAttachedFile(file, questionText) {
+    setAttachedFile(null);
+    setMessages(prev => [...prev, {
+      sender: 'user',
+      text: questionText ? `📎 ${file.name} — "${questionText}"` : `📎 ${file.name}`
+    }]);
     setUploading(true);
 
     try {
       if (file.type.startsWith('image/')) {
         const base64 = await compressImage(file);
-        const res = await fetch(`${BACKEND_URL}/api/analyze-image`, {
+        const res = await fetchWithRetry(`${BACKEND_URL}/api/analyze-image`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Image: base64, mimeType: 'image/jpeg' })
+          body: JSON.stringify({ base64Image: base64, mimeType: 'image/jpeg', question: questionText })
         });
         const data = await res.json();
         if (data.error) {
@@ -277,7 +215,7 @@ function App() {
         const chunks = text.split(/\n+/).map(c => c.trim()).filter(c => c.length > 20);
         let count = 0;
         for (const chunk of chunks) {
-          const res = await fetch(`${BACKEND_URL}/api/ingest`, {
+          const res = await fetchWithRetry(`${BACKEND_URL}/api/ingest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: chunk })
@@ -285,14 +223,25 @@ function App() {
           const data = await res.json();
           if (data.success) count++;
         }
-        setMessages(prev => [...prev, { sender: 'bot', text: `Done! I read your PDF and learned ${count} new things 📄🧠` }]);
+        let replyText = `Done! I read your PDF and learned ${count} new things 📄🧠`;
+
+        if (questionText) {
+          const res = await fetchWithRetry(`${BACKEND_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: questionText })
+          });
+          const data = await res.json();
+          replyText += `\n\n${data.answer || ''}`;
+        }
+        setMessages(prev => [...prev, { sender: 'bot', text: replyText }]);
       }
       else if (file.name.endsWith('.txt')) {
         const text = await file.text();
         const chunks = text.split(/\n+/).map(c => c.trim()).filter(c => c.length > 20);
         let count = 0;
         for (const chunk of chunks) {
-          const res = await fetch(`${BACKEND_URL}/api/ingest`, {
+          const res = await fetchWithRetry(`${BACKEND_URL}/api/ingest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: chunk })
@@ -300,7 +249,18 @@ function App() {
           const data = await res.json();
           if (data.success) count++;
         }
-        setMessages(prev => [...prev, { sender: 'bot', text: `Done! I learned ${count} new things from "${file.name}" 📄🧠` }]);
+        let replyText = `Done! I learned ${count} new things from "${file.name}" 📄🧠`;
+
+        if (questionText) {
+          const res = await fetchWithRetry(`${BACKEND_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: questionText })
+          });
+          const data = await res.json();
+          replyText += `\n\n${data.answer || ''}`;
+        }
+        setMessages(prev => [...prev, { sender: 'bot', text: replyText }]);
       }
       else {
         setMessages(prev => [...prev, { sender: 'bot', text: "I can only read .txt, .pdf files, or images right now 📎" }]);
@@ -350,13 +310,13 @@ function App() {
           {messages.map((msg, i) => (
             <div key={i} className={`msg ${msg.sender}`}>{msg.text}</div>
           ))}
-          {uploading && <div className="msg bot">Reading your file... 📖</div>}
+          {uploading && <div className="msg bot">Processing... 📖</div>}
           <div ref={messagesEndRef} />
         </div>
 
         {attachedFile && (
           <div className="file-preview">
-            📎 {attachedFile.name}
+            📎 {attachedFile.name} — type your question and press Send
             <button onClick={cancelAttachedFile}>✕</button>
           </div>
         )}
@@ -382,7 +342,7 @@ function App() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={attachedFile ? "Click Send to process file..." : "Type a message..."}
+            placeholder={attachedFile ? "Ask something about this file (optional)..." : "Type a message..."}
           />
           <button onClick={handleSend}>Send</button>
         </div>
