@@ -11,10 +11,12 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.log(err));
 
+// ---------- Schemas ----------
 const messageSchema = new mongoose.Schema({
   sender: String,
   text: String,
   userEmail: String,
+  conversationId: String,
   createdAt: { type: Date, default: Date.now }
 });
 const Message = mongoose.model('Message', messageSchema);
@@ -34,6 +36,7 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+// ---------- Helper: get embedding from Voyage AI ----------
 async function getEmbedding(text) {
   const res = await fetch('https://api.voyageai.com/v1/embeddings', {
     method: 'POST',
@@ -50,6 +53,7 @@ async function getEmbedding(text) {
   return data.data[0].embedding;
 }
 
+// ---------- Helper: get text answer from Gemini ----------
 async function getGeminiAnswer(prompt) {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -68,6 +72,7 @@ async function getGeminiAnswer(prompt) {
   return data.candidates[0].content.parts[0].text;
 }
 
+// ---------- Helper: analyze an image using Gemini Vision ----------
 async function analyzeImage(base64Image, mimeType, question) {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -91,10 +96,12 @@ async function analyzeImage(base64Image, mimeType, question) {
   return data.candidates[0].content.parts[0].text;
 }
 
+// ---------- Root ----------
 app.get('/', (req, res) => {
   res.send('Chatbot backend is running');
 });
 
+// ---------- Signup ----------
 app.post('/api/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -114,6 +121,7 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
+// ---------- Login ----------
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -128,6 +136,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// ---------- Message routes ----------
 app.post('/api/messages', async (req, res) => {
   const msg = new Message(req.body);
   await msg.save();
@@ -139,11 +148,38 @@ app.get('/api/messages', async (req, res) => {
   res.json(msgs);
 });
 
-app.get('/api/messages/:email', async (req, res) => {
-  const msgs = await Message.find({ userEmail: req.params.email }).sort({ createdAt: 1 });
+// ---------- Get messages for a specific user + conversation ----------
+app.get('/api/messages/:email/:conversationId', async (req, res) => {
+  const msgs = await Message.find({
+    userEmail: req.params.email,
+    conversationId: req.params.conversationId
+  }).sort({ createdAt: 1 });
   res.json(msgs);
 });
 
+// ---------- Get list of conversations for a user ----------
+app.get('/api/conversations/:email', async (req, res) => {
+  try {
+    const messages = await Message.find({ userEmail: req.params.email }).sort({ createdAt: 1 });
+    const conversationsMap = {};
+    messages.forEach(m => {
+      if (!conversationsMap[m.conversationId]) {
+        conversationsMap[m.conversationId] = {
+          conversationId: m.conversationId,
+          title: m.sender === 'user' ? m.text.slice(0, 30) : 'New chat',
+          createdAt: m.createdAt
+        };
+      }
+    });
+    const conversations = Object.values(conversationsMap).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json(conversations);
+  } catch (err) {
+    console.error('CONVERSATIONS ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Ingest documents ----------
 app.post('/api/ingest', async (req, res) => {
   try {
     const { text } = req.body;
@@ -157,6 +193,7 @@ app.post('/api/ingest', async (req, res) => {
   }
 });
 
+// ---------- RAG + Gemini chat endpoint ----------
 app.post('/api/chat', async (req, res) => {
   try {
     const { question } = req.body;
@@ -195,6 +232,7 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// ---------- Image analysis endpoint ----------
 app.post('/api/analyze-image', async (req, res) => {
   try {
     const { base64Image, mimeType, question } = req.body;

@@ -11,6 +11,10 @@ function detectNewFact(text) {
   return match ? match[2].trim() : null;
 }
 
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
 async function fetchWithRetry(url, options, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -27,13 +31,77 @@ async function fetchWithRetry(url, options, retries = 2) {
   }
 }
 
+// ---------- Icon components (SVG for reliable rendering) ----------
+function AttachIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
 function App() {
   const [user, setUser] = useState(() => {
     const saved = localStorage.getItem('nova_user');
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [theme, setTheme] = useState(() => localStorage.getItem('nova_theme') || 'light');
+
+  const [authMode, setAuthMode] = useState('login');
   const [nameInput, setNameInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
@@ -44,39 +112,66 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [attachedFile, setAttachedFile] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [conversationId, setConversationId] = useState(() => generateId());
+  const [conversations, setConversations] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('nova_theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ---------- Load chat history when user logs in / page refreshes ----------
   useEffect(() => {
     if (user) {
-      loadChatHistory();
+      loadConversationList();
+      setMessages([{ sender: 'bot', text: `Hey ${user.name}! 👋 How can I help you today?` }]);
     }
   }, [user]);
 
-  async function loadChatHistory() {
-    setLoadingHistory(true);
+  async function loadConversationList() {
     try {
-      const res = await fetchWithRetry(`${BACKEND_URL}/api/messages/${encodeURIComponent(user.email)}`);
+      const res = await fetchWithRetry(`${BACKEND_URL}/api/conversations/${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      if (Array.isArray(data)) setConversations(data);
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+    }
+  }
+
+  async function openConversation(convId) {
+    setConversationId(convId);
+    setLoadingHistory(true);
+    setSidebarOpen(false);
+    try {
+      const res = await fetchWithRetry(`${BACKEND_URL}/api/messages/${encodeURIComponent(user.email)}/${convId}`);
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         setMessages(data.map(m => ({ sender: m.sender, text: m.text })));
-      } else {
-        setMessages([{ sender: 'bot', text: `Hey ${user.name}! 👋 How can I help you today?` }]);
       }
     } catch (err) {
-      console.error('Failed to load history:', err);
-      setMessages([{ sender: 'bot', text: `Hey ${user.name}! 👋 How can I help you today?` }]);
+      console.error('Failed to load conversation:', err);
     }
     setLoadingHistory(false);
   }
 
-  // ---------- Auth handlers ----------
-    async function handleAuth() {
+  function startNewChat() {
+    setConversationId(generateId());
+    setMessages([{ sender: 'bot', text: `Hey ${user.name}! 👋 What would you like to talk about?` }]);
+    setSidebarOpen(false);
+  }
+
+  function toggleTheme() {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  }
+
+  async function handleAuth() {
     setAuthError('');
     const email = emailInput.trim();
     const password = passwordInput.trim();
@@ -97,9 +192,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-
       const data = await res.json();
-      console.log('Auth response:', data); // temporary debug log
 
       if (!res.ok || data.error) {
         setAuthError(data.error || `Request failed with status ${res.status}`);
@@ -123,13 +216,14 @@ function App() {
     setEmailInput('');
     setPasswordInput('');
     setNameInput('');
+    setConversations([]);
   }
 
   async function saveMessage(sender, text) {
     fetch(`${BACKEND_URL}/api/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender, text, userEmail: user.email })
+      body: JSON.stringify({ sender, text, userEmail: user.email, conversationId })
     });
   }
 
@@ -173,6 +267,7 @@ function App() {
 
     if (attachedFile) {
       await processAttachedFile(attachedFile, text);
+      loadConversationList();
       return;
     }
 
@@ -184,6 +279,7 @@ function App() {
     const botReply = await getBotReply(text);
     setMessages(prev => [...prev, { sender: 'bot', text: botReply }]);
     saveMessage('bot', botReply);
+    loadConversationList();
   }
 
   function handleKeyDown(e) {
@@ -248,6 +344,7 @@ function App() {
       sender: 'user',
       text: questionText ? `📎 ${file.name} — "${questionText}"` : `📎 ${file.name}`
     }]);
+    saveMessage('user', questionText ? `📎 ${file.name} — "${questionText}"` : `📎 ${file.name}`);
     setUploading(true);
 
     try {
@@ -259,11 +356,9 @@ function App() {
           body: JSON.stringify({ base64Image: base64, mimeType: 'image/jpeg', question: questionText })
         });
         const data = await res.json();
-        if (data.error) {
-          setMessages(prev => [...prev, { sender: 'bot', text: "Sorry, I had trouble analyzing that image. 😕" }]);
-        } else {
-          setMessages(prev => [...prev, { sender: 'bot', text: data.answer }]);
-        }
+        const replyText = data.error ? "Sorry, I had trouble analyzing that image. 😕" : data.answer;
+        setMessages(prev => [...prev, { sender: 'bot', text: replyText }]);
+        saveMessage('bot', replyText);
       }
       else if (file.type === 'application/pdf') {
         const text = await extractPdfText(file);
@@ -289,6 +384,7 @@ function App() {
           replyText += `\n\n${data.answer || ''}`;
         }
         setMessages(prev => [...prev, { sender: 'bot', text: replyText }]);
+        saveMessage('bot', replyText);
       }
       else if (file.name.endsWith('.txt')) {
         const text = await file.text();
@@ -314,9 +410,12 @@ function App() {
           replyText += `\n\n${data.answer || ''}`;
         }
         setMessages(prev => [...prev, { sender: 'bot', text: replyText }]);
+        saveMessage('bot', replyText);
       }
       else {
-        setMessages(prev => [...prev, { sender: 'bot', text: "I can only read .txt, .pdf files, or images right now 📎" }]);
+        const replyText = "I can only read .txt, .pdf files, or images right now 📎";
+        setMessages(prev => [...prev, { sender: 'bot', text: replyText }]);
+        saveMessage('bot', replyText);
       }
     } catch (err) {
       console.error('File processing error:', err);
@@ -326,7 +425,6 @@ function App() {
     setUploading(false);
   }
 
-  // ---------- LOGIN / SIGNUP SCREEN ----------
   if (!user) {
     return (
       <div className="chat-app-wrapper">
@@ -380,23 +478,50 @@ function App() {
     );
   }
 
-  // ---------- MAIN CHAT SCREEN ----------
   return (
     <div className="chat-app-wrapper">
       <div className="chat-app">
         <div className="chat-header">
+          <button className="icon-btn menu-btn" onClick={() => setSidebarOpen(!sidebarOpen)} title="Recent chats">
+            <MenuIcon />
+          </button>
           <div className="dot"></div>
           <div>
             <h1>Nova</h1>
             <p>Always online</p>
           </div>
-          <button className="logout-btn" onClick={handleLogout} title="Log out">
-            🔄
+          <button className="icon-btn theme-btn" onClick={toggleTheme} title="Toggle theme">
+            {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+          </button>
+          <button className="icon-btn logout-btn" onClick={handleLogout} title="Log out">
+            <LogoutIcon />
           </button>
         </div>
 
+        {sidebarOpen && (
+          <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)}>
+            <div className="sidebar" onClick={(e) => e.stopPropagation()}>
+              <button className="new-chat-btn" onClick={startNewChat}>
+                <PlusIcon /> New Chat
+              </button>
+              <div className="conversation-list">
+                {conversations.length === 0 && <p className="no-chats">No chats yet</p>}
+                {conversations.map(conv => (
+                  <button
+                    key={conv.conversationId}
+                    className={`conv-item ${conv.conversationId === conversationId ? 'active' : ''}`}
+                    onClick={() => openConversation(conv.conversationId)}
+                  >
+                    {conv.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="messages">
-          {loadingHistory && <div className="msg bot">Loading your chat history... 📜</div>}
+          {loadingHistory && <div className="msg bot">Loading... 📜</div>}
           {messages.map((msg, i) => (
             <div key={i} className={`msg ${msg.sender}`}>{msg.text}</div>
           ))}
@@ -418,7 +543,7 @@ function App() {
             onClick={() => fileInputRef.current.click()}
             title="Attach a file"
           >
-            📎
+            <AttachIcon />
           </button>
           <input
             type="file"
