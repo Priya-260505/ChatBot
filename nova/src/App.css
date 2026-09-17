@@ -174,17 +174,27 @@
 }
 
 .upload-btn {
-  background: var(--bg);
-  border: 1.5px solid var(--accent);
+  background: var(--accent);
+  border: none;
   border-radius: 50%;
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   cursor: pointer;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--header);
+  color: var(--accent-text);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.upload-btn:hover {
+  opacity: 0.85;
+  transform: scale(1.05);
+}
+
+.upload-btn svg {
+  display: block;
 }
 
 .upload-btn:hover {

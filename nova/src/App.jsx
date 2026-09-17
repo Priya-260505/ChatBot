@@ -31,10 +31,9 @@ async function fetchWithRetry(url, options, retries = 2) {
   }
 }
 
-// ---------- Icon components (SVG for reliable rendering) ----------
 function AttachIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
     </svg>
   );
@@ -106,6 +105,7 @@ function App() {
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -171,8 +171,10 @@ function App() {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   }
 
+  // ---------- Auth: signup redirects to login, login logs in directly ----------
   async function handleAuth() {
     setAuthError('');
+    setAuthSuccess('');
     const email = emailInput.trim();
     const password = passwordInput.trim();
 
@@ -199,9 +201,17 @@ function App() {
         return;
       }
 
-      const userData = { name: data.name, email: data.email };
-      localStorage.setItem('nova_user', JSON.stringify(userData));
-      setUser(userData);
+      if (authMode === 'signup') {
+        // Don't log in automatically — switch to login tab instead
+        setAuthSuccess('Account created! Please log in.');
+        setAuthMode('login');
+        setPasswordInput('');
+        setNameInput('');
+      } else {
+        const userData = { name: data.name, email: data.email };
+        localStorage.setItem('nova_user', JSON.stringify(userData));
+        setUser(userData);
+      }
     } catch (err) {
       console.error('Auth request failed:', err);
       setAuthError('Could not connect to server. Please try again.');
@@ -340,11 +350,9 @@ function App() {
 
   async function processAttachedFile(file, questionText) {
     setAttachedFile(null);
-    setMessages(prev => [...prev, {
-      sender: 'user',
-      text: questionText ? `📎 ${file.name} — "${questionText}"` : `📎 ${file.name}`
-    }]);
-    saveMessage('user', questionText ? `📎 ${file.name} — "${questionText}"` : `📎 ${file.name}`);
+    const userMsgText = questionText ? `📎 ${file.name} — "${questionText}"` : `📎 ${file.name}`;
+    setMessages(prev => [...prev, { sender: 'user', text: userMsgText }]);
+    saveMessage('user', userMsgText);
     setUploading(true);
 
     try {
@@ -434,13 +442,13 @@ function App() {
           <div className="auth-toggle">
             <button
               className={authMode === 'login' ? 'active' : ''}
-              onClick={() => { setAuthMode('login'); setAuthError(''); }}
+              onClick={() => { setAuthMode('login'); setAuthError(''); setAuthSuccess(''); }}
             >
               Login
             </button>
             <button
               className={authMode === 'signup' ? 'active' : ''}
-              onClick={() => { setAuthMode('signup'); setAuthError(''); }}
+              onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthSuccess(''); }}
             >
               Sign Up
             </button>
@@ -469,6 +477,7 @@ function App() {
           />
 
           {authError && <p className="auth-error">{authError}</p>}
+          {authSuccess && <p className="auth-success">{authSuccess}</p>}
 
           <button className="auth-submit" onClick={handleAuth}>
             {authMode === 'login' ? 'Log In' : 'Create Account'}
