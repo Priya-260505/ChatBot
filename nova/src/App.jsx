@@ -545,14 +545,29 @@ function App() {
           </div>
         )}
 
-        <div className="input-row">
+                <div className="input-row">
           <button
             type="button"
-            className="upload-btn"
             onClick={() => fileInputRef.current.click()}
             title="Attach a file"
+            style={{
+              background: '#E1C8B2',
+              color: '#3B2F2F',
+              border: '2px solid #3B2F2F',
+              borderRadius: '50%',
+              width: '44px',
+              height: '44px',
+              cursor: 'pointer',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px',
+              fontWeight: 'bold',
+              boxShadow: '0 2px 8px rgba(59,47,47,0.25)'
+            }}
           >
-            <AttachIcon />
+            📎
           </button>
           <input
             type="file"
@@ -568,7 +583,7 @@ function App() {
             onKeyDown={handleKeyDown}
             placeholder={attachedFile ? "Ask something about this file (optional)..." : "Type a message..."}
           />
-          <button onClick={handleSend}>Send</button>
+          <button className="send-btn" onClick={handleSend}>Send</button>
         </div>
       </div>
     </div>
